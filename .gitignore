@@ -1,0 +1,21 @@
+# --- Python Specific ---
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+env/
+.venv/
+
+# --- Project Specific Data (The "Heavy" Stuff) ---
+players.json
+*.csv
+*.json
+!requirements.txt
+
+# --- Secrets & Config ---
+.env
+.streamlit/secrets.toml
+
+# --- OS Specific ---
+.DS_Store
+Thumbs.db
