@@ -11,7 +11,8 @@ def get_user_id(username):
         return data.get("user_id")
     return None
 
-def get_leagues(user_id, sport="nba", season="2025"): 
+# 🚨 UPDATED default season to 2026
+def get_leagues(user_id, sport="nba", season="2026"): 
     response = requests.get(f"{BASE_URL}/user/{user_id}/leagues/{sport}/{season}")
     return response.json()
 
@@ -27,7 +28,6 @@ def get_traded_picks(league_id):
     response = requests.get(f"{BASE_URL}/league/{league_id}/traded_picks")
     return response.json()
 
-# 🚨 UPDATED: Fetch the entire draft object instead of just the draft_order
 def get_draft_data(league_id):
     response = requests.get(f"{BASE_URL}/league/{league_id}/drafts")
     drafts = response.json()
@@ -50,39 +50,41 @@ def get_mapped_rosters(league_id, players_dict):
     traded_picks = get_traded_picks(league_id)
     draft = get_draft_data(league_id)
     
-    # 🚨 UPDATED: Prioritize slot_to_roster_id for perfect accuracy
     roster_to_slot = {}
     if draft:
         slot_to_roster_id = draft.get("slot_to_roster_id")
         draft_order = draft.get("draft_order")
         
         if slot_to_roster_id:
-            # Maps string slots ("1", "2") to integer roster_ids
             for slot_str, r_id in slot_to_roster_id.items():
                 roster_to_slot[r_id] = int(slot_str)
         elif draft_order:
-            # Fallback if slot_to_roster_id isn't generated yet
             for r in rosters:
                 u_id = str(r.get("owner_id"))
                 if u_id in draft_order:
                     roster_to_slot[r["roster_id"]] = draft_order[u_id]
 
     pick_inventory = []
+    # 🚨 UPDATED: Base year shifted to 2026
+    target_seasons = ["2026", "2027", "2028"]
+    
     for r in rosters:
         rid = r["roster_id"]
-        for round_num in [1, 2, 3]:
-            traded_pick = next((p for p in traded_picks if p["roster_id"] == rid and p["round"] == round_num), None)
-            current_owner = traded_pick["owner_id"] if traded_pick else rid
-            
-            # The pick slot is tied to the ORIGINAL roster that earned it
-            pick_slot = roster_to_slot.get(rid)
-            
-            pick_inventory.append({
-                "round": round_num, 
-                "original_roster": rid, 
-                "current_owner": current_owner,
-                "pick_slot": pick_slot
-            })
+        for season in target_seasons:
+            for round_num in [1, 2, 3]:
+                traded_pick = next((p for p in traded_picks if p["roster_id"] == rid and p["round"] == round_num and p.get("season") == season), None)
+                current_owner = traded_pick["owner_id"] if traded_pick else rid
+                
+                # 🚨 UPDATED: Only 2026 gets the specific pick slot mappings
+                pick_slot = roster_to_slot.get(rid) if season == "2026" else None
+                
+                pick_inventory.append({
+                    "season": season,
+                    "round": round_num, 
+                    "original_roster": rid, 
+                    "current_owner": current_owner,
+                    "pick_slot": pick_slot
+                })
 
     for roster in rosters:
         player_names = []

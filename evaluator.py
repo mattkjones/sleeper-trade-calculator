@@ -4,7 +4,6 @@ import scraper
 from utils import clean_name
 
 def apply_keeper_premium(live_values, top_n=24, premium=1.15):
-    """Applies a 15% value bump to the Top 24 players in the global market to account for absolute scarcity."""
     sorted_items = sorted(live_values.items(), key=lambda x: x[1], reverse=True)
     adjusted_values = {}
     for i, (player, val) in enumerate(sorted_items):
@@ -15,12 +14,10 @@ def apply_keeper_premium(live_values, top_n=24, premium=1.15):
     return adjusted_values
 
 def get_team_valuation(roster):
-    """Sorts roster into Keepers, Rentals, and Draft Picks."""
     player_details = roster["player_details"]
     draft_picks = roster.get("draft_picks", [])
     raw_values = scraper.get_player_value_dict()
     
-    # Apply the 15% bump to the Top 24 assets
     live_values = apply_keeper_premium(raw_values, top_n=24, premium=1.15)
     
     for p in player_details:
@@ -29,27 +26,31 @@ def get_team_valuation(roster):
         
     sorted_p = sorted(player_details, key=lambda x: x["market_value"], reverse=True)
     
-    # Specific Draft Pick Valuation (Sliding Scale)
-    base_pick_values = {1: 1200, 2: 800, 3: 500}
+    base_pick_values = {1: 1450, 2: 950, 3: 650}
     evaluated_picks = []
     
     for p in draft_picks:
         rnd = p['round']
         slot = p.get('pick_slot')
+        season = p.get('season', '2026')
         
-        if slot:
-            # Sliding scale based on an 8-team league median (4.5)
-            multiplier = {1: 100, 2: 50, 3: 25}.get(rnd, 0)
+        if slot and season == "2026":
+            multiplier = {1: 100, 2: 50, 3: 35}.get(rnd, 0)
             slot_adjust = (4.5 - slot) * multiplier 
             val = base_pick_values.get(rnd, 200) + slot_adjust
-            name = f"Round {rnd} (Pick {slot})"
+            name = f"{season} Round {rnd} (Pick {slot})"
         else:
-            val = base_pick_values.get(rnd, 200)
-            name = f"Round {rnd} Pick"
+            years_out = int(season) - 2026
+            base_val = base_pick_values.get(rnd, 200)
+            val = base_val * (0.90 ** years_out)
+            name = f"{season} Round {rnd} Pick"
             
         evaluated_picks.append({
             "name": name,
-            "market_value": int(val)
+            "market_value": int(val),
+            "is_pick": True,
+            "season": int(season),
+            "round": rnd
         })
 
     return {
@@ -57,11 +58,10 @@ def get_team_valuation(roster):
         "keeper_score": sum(p["market_value"] for p in sorted_p[:3]),
         "surplus_keeper": sorted_p[3] if len(sorted_p) > 3 else None,
         "rentals": sorted_p[3:],
-        "picks": sorted(evaluated_picks, key=lambda x: x["market_value"], reverse=True)
+        "picks": sorted(evaluated_picks, key=lambda x: (x["season"], x["round"]))
     }
 
 def generate_trade_packages(my_eval, their_eval):
-    """Dynamically generates 2-for-1, 3-for-2, and Pick-Swap combinations."""
     packages = []
     
     my_pool = my_eval["rentals"][:4] + my_eval.get("picks", [])
@@ -72,9 +72,19 @@ def generate_trade_packages(my_eval, their_eval):
             for my_combo in itertools.combinations(my_pool, my_len):
                 for their_combo in itertools.combinations(their_pool, their_len):
                     
-                    my_players = [i for i in my_combo if "Round" not in i["name"]]
-                    their_players = [i for i in their_combo if "Round" not in i["name"]]
+                    # 🚨 FIX 1: The Anti-Mirror Rule (No swapping identical future picks)
+                    my_names = set(i['name'] for i in my_combo)
+                    their_names = set(i['name'] for i in their_combo)
+                    if my_names.intersection(their_names):
+                        continue
+                        
+                    my_players = [i for i in my_combo if not i.get("is_pick", False)]
+                    their_players = [i for i in their_combo if not i.get("is_pick", False)]
                     
+                    # 🚨 FIX 2: No pure pick-for-pick swaps (Trades must involve a player)
+                    if len(my_players) == 0 and len(their_players) == 0:
+                        continue
+                        
                     net_roster_spots = len(my_players) - len(their_players)
                     if net_roster_spots < 0:
                         continue
@@ -82,14 +92,10 @@ def generate_trade_packages(my_eval, their_eval):
                     my_raw_val = sum(i["market_value"] for i in my_combo)
                     their_raw_val = sum(i["market_value"] for i in their_combo)
                     
-                    # The 25% extra-player tax
-                    tax_rate = 0.25 if net_roster_spots == 1 else (0.35 if net_roster_spots == 2 else 0.0)
-                    my_effective_val = my_raw_val * (1 - tax_rate)
-                    
                     my_best_item = max((i["market_value"] for i in my_combo), default=0)
                     their_best_item = max((i["market_value"] for i in their_combo), default=0)
                     
-                    if their_raw_val * 0.90 <= my_effective_val <= their_raw_val * 1.15:
+                    if their_raw_val * 0.90 <= my_raw_val <= their_raw_val * 1.15:
                         if my_best_item >= their_best_item * 0.65:
                             
                             offer_str = " + ".join([f"{i['name']} ({i['market_value']})" for i in my_combo])
@@ -104,9 +110,8 @@ def generate_trade_packages(my_eval, their_eval):
                             packages.append({
                                 "offer": offer_str,
                                 "receive": receive_str,
-                                "value_diff": abs(my_effective_val - their_raw_val),
-                                "label": t_type,
-                                "tax": tax_rate
+                                "value_diff": abs(my_raw_val - their_raw_val),
+                                "label": t_type
                             })
                             
     packages.sort(key=lambda x: x["value_diff"])
@@ -122,7 +127,6 @@ def generate_trade_packages(my_eval, their_eval):
                 
     return unique_packages
 
-# 🚨 ADDED league_users to the function arguments
 def find_vibe_trades(my_roster, other_rosters, my_user_id, league_users):
     my_eval = get_team_valuation(my_roster)
     recommendations = []
@@ -133,7 +137,6 @@ def find_vibe_trades(my_roster, other_rosters, my_user_id, league_users):
         
         their_eval = get_team_valuation(team)
         
-        # 🚨 NEW: Map the owner_id to their custom team name
         owner_id_str = str(team.get("owner_id"))
         user_info = next((u for u in league_users if str(u.get("user_id")) == owner_id_str), None)
         
@@ -149,7 +152,7 @@ def find_vibe_trades(my_roster, other_rosters, my_user_id, league_users):
                 pick_string = f" + their {r1_pick['name']}" if r1_pick else " + Draft Picks"
                 
                 recommendations.append({
-                    "target_team": target_team_name, # Updated variable
+                    "target_team": target_team_name,
                     "type": "🚀 Keeper Consolidation",
                     "deal": f"Send {my_eval['surplus_keeper']['name']} ({my_eval['surplus_keeper']['market_value']}) for a Top Rental{pick_string}",
                     "logic": f"You can't keep {my_eval['surplus_keeper']['name']}. They need a 3rd keeper and have capital to spend."
@@ -157,12 +160,62 @@ def find_vibe_trades(my_roster, other_rosters, my_user_id, league_users):
 
         specific_deals = generate_trade_packages(my_eval, their_eval)
         for deal in specific_deals:
-            tax_str = f"accounts for a {int(deal['tax']*100)}% roster spot tax and " if deal['tax'] > 0 else "is a direct value match and "
             recommendations.append({
-                "target_team": target_team_name, # Updated variable
+                "target_team": target_team_name,
                 "type": f"🤝 {deal['label']}",
                 "deal": f"Offer {deal['offer']} \n**For:** {deal['receive']}",
-                "logic": f"Total effective value {tax_str}meets the 65% minimum anchor rule."
+                "logic": f"Total value is a direct match and meets the 65% minimum anchor rule."
             })
 
     return recommendations
+
+def evaluate_custom_trade(side_a_assets, side_b_assets, team_a_name, team_b_name):
+    eff_a = sum(a['market_value'] for a in side_a_assets)
+    eff_b = sum(b['market_value'] for b in side_b_assets)
+
+    players_a = sum(1 for a in side_a_assets if not a.get('is_pick', False))
+    players_b = sum(1 for b in side_b_assets if not b.get('is_pick', False))
+
+    best_a = max([a['market_value'] for a in side_a_assets] + [0])
+    best_b = max([b['market_value'] for b in side_b_assets] + [0])
+
+    if eff_a == 0 and eff_b == 0:
+         return {"status": "Empty", "blurb": "Select assets to evaluate.", "color": "normal"}
+
+    val_diff = abs(eff_a - eff_b)
+    
+    winner = team_b_name if eff_a > eff_b else team_a_name
+    loser = team_a_name if eff_a > eff_b else team_b_name
+
+    color = "normal"
+    if val_diff <= 100:
+        status = "⚖️ Fair Trade"
+        color = "success"
+    elif val_diff <= 200:
+        status = f"⚠️ This trade slightly favors {winner}."
+        color = "warning"
+    elif val_diff <= 350:
+        status = f"🚨 This trade significantly favors {winner}."
+        color = "error"
+    else:
+        status = f"💀 {loser} is getting fleeced, this trade needs adjusting!"
+        color = "error"
+
+    anchor_met = True
+    anchor_msg = ""
+    if players_a > players_b and players_b > 0:
+        if best_a < best_b * 0.65:
+            anchor_met, anchor_msg = False, f"{team_a_name}'s best player is too weak to anchor this package."
+    elif players_b > players_a and players_a > 0:
+        if best_b < best_a * 0.65:
+            anchor_met, anchor_msg = False, f"{team_b_name}'s best player is too weak to anchor this package."
+
+    if not anchor_met:
+        status = "❌ Unfair (Rejected by Anchor Rule)"
+        color = "error"
+
+    blurb = f"**Value Sent:** {team_a_name} ({int(eff_a)}) vs {team_b_name} ({int(eff_b)})."
+
+    if not anchor_met: blurb += f"\n\n**Rule Failed:** {anchor_msg}"
+
+    return {"status": status, "blurb": blurb, "color": color}
