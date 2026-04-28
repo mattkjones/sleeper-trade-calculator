@@ -26,7 +26,11 @@ def get_team_valuation(roster):
         
     sorted_p = sorted(player_details, key=lambda x: x["market_value"], reverse=True)
     
-    base_pick_values = {1: 1450, 2: 950, 3: 650}
+    # 🚨 UPDATED: Trimmed to 8 rounds
+    base_pick_values = {
+        1: 1450, 2: 950, 3: 650, 4: 450, 
+        5: 300, 6: 200, 7: 125, 8: 75
+    }
     evaluated_picks = []
     
     for p in draft_picks:
@@ -35,13 +39,13 @@ def get_team_valuation(roster):
         season = p.get('season', '2026')
         
         if slot and season == "2026":
-            multiplier = {1: 100, 2: 50, 3: 35}.get(rnd, 0)
+            multiplier = {1: 100, 2: 50, 3: 35, 4: 20, 5: 10}.get(rnd, 0)
             slot_adjust = (4.5 - slot) * multiplier 
-            val = base_pick_values.get(rnd, 200) + slot_adjust
+            val = base_pick_values.get(rnd, 0) + slot_adjust
             name = f"{season} Round {rnd} (Pick {slot})"
         else:
             years_out = int(season) - 2026
-            base_val = base_pick_values.get(rnd, 200)
+            base_val = base_pick_values.get(rnd, 0)
             val = base_val * (0.90 ** years_out)
             name = f"{season} Round {rnd} Pick"
             
@@ -64,15 +68,18 @@ def get_team_valuation(roster):
 def generate_trade_packages(my_eval, their_eval):
     packages = []
     
-    my_pool = my_eval["rentals"][:4] + my_eval.get("picks", [])
-    their_pool = their_eval["keepers"] + their_eval["rentals"][:2] + their_eval.get("picks", [])
+    # 🚨 SAFETY FILTER: Only AI-evaluate picks worth > 200 (Roughly Round 5 and higher)
+    usable_my_picks = [p for p in my_eval.get("picks", []) if p["market_value"] > 200]
+    usable_their_picks = [p for p in their_eval.get("picks", []) if p["market_value"] > 200]
+    
+    my_pool = my_eval["rentals"][:4] + usable_my_picks
+    their_pool = their_eval["keepers"] + their_eval["rentals"][:2] + usable_their_picks
 
     for my_len in [1, 2, 3]:
         for their_len in [1, 2]:
             for my_combo in itertools.combinations(my_pool, my_len):
                 for their_combo in itertools.combinations(their_pool, their_len):
                     
-                    # 🚨 FIX 1: The Anti-Mirror Rule (No swapping identical future picks)
                     my_names = set(i['name'] for i in my_combo)
                     their_names = set(i['name'] for i in their_combo)
                     if my_names.intersection(their_names):
@@ -81,7 +88,6 @@ def generate_trade_packages(my_eval, their_eval):
                     my_players = [i for i in my_combo if not i.get("is_pick", False)]
                     their_players = [i for i in their_combo if not i.get("is_pick", False)]
                     
-                    # 🚨 FIX 2: No pure pick-for-pick swaps (Trades must involve a player)
                     if len(my_players) == 0 and len(their_players) == 0:
                         continue
                         

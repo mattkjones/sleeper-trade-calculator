@@ -11,7 +11,6 @@ def get_user_id(username):
         return data.get("user_id")
     return None
 
-# 🚨 UPDATED default season to 2026
 def get_leagues(user_id, sport="nba", season="2026"): 
     response = requests.get(f"{BASE_URL}/user/{user_id}/leagues/{sport}/{season}")
     return response.json()
@@ -65,17 +64,16 @@ def get_mapped_rosters(league_id, players_dict):
                     roster_to_slot[r["roster_id"]] = draft_order[u_id]
 
     pick_inventory = []
-    # 🚨 UPDATED: Base year shifted to 2026
     target_seasons = ["2026", "2027", "2028"]
     
     for r in rosters:
         rid = r["roster_id"]
         for season in target_seasons:
-            for round_num in [1, 2, 3]:
+            # 🚨 UPDATED: Loop capped at 8 rounds
+            for round_num in range(1, 9):
                 traded_pick = next((p for p in traded_picks if p["roster_id"] == rid and p["round"] == round_num and p.get("season") == season), None)
                 current_owner = traded_pick["owner_id"] if traded_pick else rid
                 
-                # 🚨 UPDATED: Only 2026 gets the specific pick slot mappings
                 pick_slot = roster_to_slot.get(rid) if season == "2026" else None
                 
                 pick_inventory.append({
