@@ -4,13 +4,18 @@ import evaluator as ev
 
 st.set_page_config(page_title="Sleeper Trade Engine", layout="wide")
 
-# 🚨 INITIALIZE SESSION STATE FOR DYNAMIC ROWS
+# INITIALIZE SESSION STATE FOR DYNAMIC ROWS
 if 'my_slots' not in st.session_state: st.session_state.my_slots = 1
 if 'their_slots' not in st.session_state: st.session_state.their_slots = 1
 
 with st.sidebar:
-    st.header("Settings")
+    st.header("⚙️ Settings")
     username = st.text_input("Sleeper Username", value="mattkjones")
+    
+    st.write("---")
+    st.header("🧭 Navigation")
+    # 🚨 REPLACED TABS WITH SIDEBAR NAVIGATION
+    app_mode = st.radio("Choose a Tool:", ["🤖 AI Trade Suggestions", "🧮 Manual Calculator"])
 
 if username:
     user_id = sl.get_user_id(username)
@@ -43,10 +48,8 @@ if username:
                 if my_roster:
                     my_eval = ev.get_team_valuation(my_roster)
                     
-                    tab1, tab2 = st.tabs(["🤖 AI Trade Suggestions", "🧮 Manual Calculator"])
-                    
-                    # --- TAB 1: AI SUGGESTIONS ---
-                    with tab1:
+                    # --- TOOL 1: AI SUGGESTIONS ---
+                    if app_mode == "🤖 AI Trade Suggestions":
                         st.metric("Top 3 Keeper Market Score", f"{int(my_eval['keeper_score'])}")
                         col1, col2 = st.columns([1, 2])
                         
@@ -75,12 +78,12 @@ if username:
                             else:
                                 st.write("No 'fair' keeper trades found.")
 
-                    # --- TAB 2: MANUAL CALCULATOR ---
-                    with tab2:
+                    # --- TOOL 2: MANUAL CALCULATOR ---
+                    elif app_mode == "🧮 Manual Calculator":
                         st.write("### Custom Trade Evaluator")
                         
                         my_all_assets = my_eval["keepers"] + my_eval["rentals"] + my_eval["picks"]
-                        my_options_dict = {f"{a['name']} ({a['market_value']})": {"name": a["name"], "market_value": a["market_value"], "is_pick": "Round" in a["name"]} for a in my_all_assets}
+                        my_options_dict = {f"{a['name']} ({a['market_value']})": {"name": a["name"], "market_value": a["market_value"], "is_pick": a.get("is_pick", False)} for a in my_all_assets}
                         my_options_list = ["-- Select Asset --"] + list(my_options_dict.keys())
                         
                         other_teams = {}
@@ -115,12 +118,11 @@ if username:
                             target_eval = ev.get_team_valuation(target_roster)
                             
                             target_all_assets = target_eval["keepers"] + target_eval["rentals"] + target_eval["picks"]
-                            target_options_dict = {f"{a['name']} ({a['market_value']})": {"name": a["name"], "market_value": a["market_value"], "is_pick": "Round" in a["name"]} for a in target_all_assets}
+                            target_options_dict = {f"{a['name']} ({a['market_value']})": {"name": a["name"], "market_value": a["market_value"], "is_pick": a.get("is_pick", False)} for a in target_all_assets}
                             target_options_list = ["-- Select Asset --"] + list(target_options_dict.keys())
                             
                             target_trade_assets = []
                             for i in range(st.session_state.their_slots):
-                                # Dynamic key based on target team so it resets cleanly when changing teams
                                 choice = st.selectbox(f"Receive Asset {i+1}", target_options_list, key=f"their_slot_{target_team_name}_{i}")
                                 if choice != "-- Select Asset --":
                                     target_trade_assets.append(target_options_dict[choice])
@@ -132,7 +134,6 @@ if username:
 
                         st.write("---")
                         
-                        # 🚨 CENTERED BUTTON USING COLUMNS
                         b_col1, b_col2, b_col3 = st.columns([1, 1, 1])
                         with b_col2:
                             eval_pressed = st.button("⚖️ Calculate Trade", use_container_width=True)

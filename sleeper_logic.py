@@ -1,9 +1,11 @@
 import requests
 import json
 import os
+import streamlit as st
 
 BASE_URL = "https://api.sleeper.app/v1"
 
+@st.cache_data(ttl=3600)
 def get_user_id(username):
     response = requests.get(f"{BASE_URL}/user/{username}")
     data = response.json()
@@ -11,22 +13,27 @@ def get_user_id(username):
         return data.get("user_id")
     return None
 
+@st.cache_data(ttl=3600)
 def get_leagues(user_id, sport="nba", season="2026"): 
     response = requests.get(f"{BASE_URL}/user/{user_id}/leagues/{sport}/{season}")
     return response.json()
 
+@st.cache_data(ttl=3600)
 def get_rosters(league_id):
     response = requests.get(f"{BASE_URL}/league/{league_id}/rosters")
     return response.json()
 
+@st.cache_data(ttl=3600)
 def get_league_users(league_id):
     response = requests.get(f"{BASE_URL}/league/{league_id}/users")
     return response.json()
 
+@st.cache_data(ttl=3600)
 def get_traded_picks(league_id):
     response = requests.get(f"{BASE_URL}/league/{league_id}/traded_picks")
     return response.json()
 
+@st.cache_data(ttl=3600)
 def get_draft_data(league_id):
     response = requests.get(f"{BASE_URL}/league/{league_id}/drafts")
     drafts = response.json()
@@ -34,6 +41,7 @@ def get_draft_data(league_id):
         return drafts[0]
     return None
 
+@st.cache_data(ttl=3600)
 def fetch_all_players():
     if not os.path.exists("players.json"):
         print("Fetching global player data...")
@@ -44,6 +52,7 @@ def fetch_all_players():
     with open("players.json", "r") as f:
         return json.load(f)
 
+@st.cache_data(ttl=3600)
 def get_mapped_rosters(league_id, players_dict):
     rosters = get_rosters(league_id)
     traded_picks = get_traded_picks(league_id)

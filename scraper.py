@@ -3,6 +3,7 @@ from bs4 import BeautifulSoup
 import pandas as pd
 import os
 import io
+import streamlit as st
 from utils import clean_name
 
 # UPDATED URL
@@ -47,6 +48,7 @@ def scrape_dynamic_values():
         print(f"Scraper failed: {e}")
         return None
 
+@st.cache_data(ttl=3600)
 def get_player_value_dict():
     if not os.path.exists("live_market_values.csv"):
         scrape_dynamic_values()
